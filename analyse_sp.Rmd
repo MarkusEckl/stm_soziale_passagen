@@ -1,0 +1,364 @@
+---
+title: "Titel Thesen Temperamente - Die Themen der Sozialen Passagen"
+output:
+  html_notebook:
+    code_folding: hide
+    theme: readable
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+  html_document:
+    df_print: paged
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+## Topic Modeling 
+Im folgenden Notebook werden Artikel der Zeitschrift [Soziale Passagen](https://link.springer.com/journal/12592) mithilfe der 'Topic Modeling' Methode 'Latent Dirichlet Allocation' (LDA) bzw. mithilfe der 'Structural Topic Modling' Methode untersucht. Der Untersuchungszeitraum liegt dabei zwsichen 2009 und 2019.
+
+In den letzten Jahren wurde das Topic Modeling als Methode für die quantitative Analyse von Texten vor allem in den Digital Humanities häufig diskutiert und in vielen Studien angewandt (vgl. McFarland et al. 2013). Unter Topic Modeling werden zumeist Methoden verstanden, die auch als 'Generative Models' bezeichnet werden, da sie unter Zuhilfenahme von probabilistischen Verfahren die Konstruktion eines Textes nachbilden (vgl. Steyvers & Griffiths 2007). Ziel solcher Methoden ist es, latente semantische Strukturen in den Texten zu ermitteln und dadurch Themen zu extrahieren. Sie eignen sich vor allem für die Analyse sehr großer Textdatenmengen, deren Inhalte bisweilen nur wenig bekannt oder deren Daten noch durch ihre Unstrukturiertheit und durch fehlende Metadaten gekennzeichnet sind. Neben der Latent Semantic Analysis (LSA) von Deerwester et al. (1990) ist wohl die Latent Dirichlet Allocation (LDA) von [Blei et al. (2003)](http://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf) die bekannteste Methode des Topic Modelings.
+
+Zweitere soll in dieser Studie zum Einsatz kommen. Die LDA zeichnet sich dadurch aus, dass eben kein Forscher*in Themen subjektiv vorgeben muss, z. B. in Form von Schlüsselworten, deren Häufigkeit in einem Text ermittelt werden. Bei der LDA können Themen auf Grundlage von gemeinsam auftretenden Wörtern in den Dokumenten mithilfe eines komplexen probabilistischen Modells gefunden werden. Für die Analyse der Daten kam das R Package [Structural Topic Modeling (STM)](https://www.structuraltopicmodel.com/) zum Einsatz. Das STM ist eine Erweiterung des LDA, da in diesem Modell Metadaten, wie zum Beispliel das Erscheiungungsdatum eines Textes mit berücksichtigt wird.  
+
+
+
+```{r message=FALSE, warning=FALSE, results = 'hide', eval = FALSE}
+#R Packages 
+library(magrittr)
+library(dplyr)
+library(quanteda)
+library(spacyr)
+library(stm)
+library(DT)
+library(sna)
+```
+
+
+## Corpus  
+Um die Artikel mithilfe Methoden der quantiativen Textanalyse untersuchen zu können braucht es eine bestimmte Datenaufbereitung und -struktur des Textes. Zunächst wurde dabei die Artikel in einzelne Sequenzen zerteilt, da für eine LDA es nicht sinnvoll ist, mit sehr langen Dokumenten zu arbeiten. Daher wurden die einzelnen Artikel anhang ihrer eigenen Absatzstruktur geteilt. Insgesamt entstanden dadurch *8995* Dokumente, die für die Analyse herangezogen wurden. 
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+
+setwd("/home/eckl/analyse_sp")
+
+df <- read.csv("data_input/df_sp_corpus_bereinigt_final.csv", sep = "\t", encoding = "utf-8")
+df$Zitat <- as.character(df$Zitat)
+dim(df)
+df2 <- subset(df, df$Zitat > length(5))
+dim(df2)
+df2 <- subset(df2[,c("Artikel", "Zitat", "Jahr")])
+colnames(df2) 
+
+#df.sample.ian <-sample_n(df2, size = 400, replace = T) 
+#write.csv(df.sample.ian, "df.sp.sampel.ian.csv", sep = "\t")
+
+```
+```{r}
+df.t <- df2[!duplicated(df2$Artikel), ]
+summary(df.t)
+```
+
+## Textbereinigung  
+
+### POS-Tagging & Lemmatising 
+Der erste Schritt ist das *Tokenizing*. Darunter versteht man einen Prozess, in dem der Text in untersuchbare Einheiten zerlegt wird. Ein Token kann entweder aus einem Satz, aus mehreren Wörtern oder aus einzelnen Wörtern bestehen. Zweitens wurde eine [Lemmatisierung](https://de.wikipedia.org/wiki/Lemma_(Lexikographie)) durchgeführt. Lemmatisierung ist ein wichtiger Schritt für die Analyse, da damit die Beugungen eines Wortes auf ihre Grundform reduziert wird. So wird Beispielsweise aus *traf*, *treffe*, *trift* und *treffen* auf die Form *treffen* zurückgeführt. Die Rückführung der Wörter auf ihren Wortstamm wird in der Computerlinguistik als sinnvoll angesehen, weil bei dem reinen Zählen der Wörter in einem Corpus ein Wort dadurch weniger Varianz aufweist. Diese Informationsreduktion führt dabei auch zu besseren Analyseergebnissen, ohne zu stark in den Sinngehalt der Wörter einzugreifen. Für die Lemmatisierung muss in einem Schritt davor die syntaktische Funktion der Wörter in einem Satz bestimmt werden. Hierfür wurde ein sogenanntes [POS-Tagging](https://de.wikipedia.org/wiki/Part-of-speech-Tagging) angewandt, dessen Datengrundlage eben einzelne Wörter sind, wobei die Satzstruktur noch erhalten sein muss. Für das Tokenizing, das POS-Tagging und die Lemmatisierung wurde die [spaCy](https://spacy.io/) Bibliothek verwendet. 
+
+
+```{r message=FALSE, warning=FALSE, results = 'hide', eval = FALSE}
+# Start the clock!
+ptm <- proc.time()
+
+spacy_initialize(model = 'de' ,refresh_settings = TRUE)
+parsed <- spacy_parse(df2$Zitat)
+spacy_finalize()
+save.image('output/data/sp_text_paresed.RData')
+
+proc.time() - ptm
+
+```
+
+
+
+### Document Term Matrix
+In einem darauffolgenden Schritt wurden die Tokens als [Bag of words](https://en.wikipedia.org/wiki/Bag-of-words_model) abgespeichert. Darunter ist eine vereinfachte Darstellung von Text im [Natural language processing (NLP)](https://en.wikipedia.org/wiki/Natural_language_processing) gemeint, in der jedes Wort nur noch einmal pro Dokument und mir ihrer jeweiligen Auftretenshäufigkeit abgespeichert wird. 
+
+Danach wurden Punktionen, Leerzeichen und Kommata, sowie *stop-words* gelöscht. Letztere sind Wörter, die keinen relevanten Informationswert für die Themenbestimmung besitzen. Deutsche *stop-words* sind zum Beispiel *und*, *durch*, *von* oder *aber*. Da der Computer ein und dasselbe Wort aufgrund der Groß- und Kleinschreibung als unterschiedliche Wörter auffassen würde, wurden alle Wörter klein geschrieben. Zudem wurden in diesem Schritt auch *bi-grams* erzeugt. Dies sind häufig gemeinsam auftretende Wörter, die eine semantische Bedeutung besitzen, wie zum Beispiel *Soziale Arbeit*.
+
+Die Ausgangslage für unterschiedlichen quantitativen Analysen von Texten ist die [Dokument Term Matrix (DTM)](https://en.wikipedia.org/wiki/Document-term_matrix). Der Index der Zeilen der DTM werden durch die jeweiligen Dokumente repräsentiert. Die Spalten beinhalten die Wörter, die im Corpus auftreten und nicht durch die Textbereinigung entfernt wurden. In den jeweiligen Zellen steht die Häufigkeit des Auftretens eines Wortes in einem Dokument. Durch diese Datenstruktur werden die Texte als Summe ihrer Wörter aufgefasst, sprich die grammatikalische Struktur selbst geht zwar verloren, jedoch können dadurch unterschiedlichste frequenzielle, und in unserem Fall probabilistische Analysen durchgeführt werden.
+
+```{r message=FALSE, warning=FALSE, results = 'hide', eval = FALSE}
+load('output/data/sp_text_paresed.RData') # loads lemma
+
+tokens <- as.tokens(parsed, use_lemma = TRUE) %>% 
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>% 
+  tokens_tolower() %>% 
+  tokens_remove(c(stopwords('de'), "vgl", "et_a1", "fiir","v0n", "a1s", "hinsichtlich", 
+                  "11nd", "z._b.", "cine", "hierzu", "erstens", "zweitens", "deutlich", "tion",
+                   "geben", "mehr", "immer", "schon", "gehen", "sowie", "erst", "mehr", "etwa",
+                  "dabei", "dis-", "beziehungsweise", "seit", "drei", "insbesondere",
+                  stopwords("en")),
+                min_nchar = 4L,  padding = TRUE)
+
+
+collocation <- textstat_collocations(tokens, min_count = 30)
+tokens <- tokens_compound(tokens, collocation, join = FALSE)
+
+
+docvars(tokens) <- df2 %>% select(Artikel, Zitat, Jahr) %>% rename(text = 'Zitat')
+
+
+dfm_sp <- tokens %>% dfm() %>% dfm_select(min_nchar = 4L) %>% 
+  dfm_trim(min_docfreq = 50) %>%  # minimum 50 documents (removes rare terms)
+   dfm_trim(max_docfreq = 0.25,
+            docfreq_type = 'prop') # maximum in 25 percent of documents (stop words)
+
+sp_grouped <- dfm_group(dfm_sp, groups = 'Jahr') # grouped dfm for keyness
+
+```
+
+
+## STM Model 
+Einen großen Einfluss auf die Interpretierbarkeit der Topics besitzt der im Modell zu bestimmende Parameter hinsichtlich der Anzahl der Topics. Denn diese werden nicht automatisch ermittelt, sondern müssen von den Forscher*innen selbst bestimmt werden. Werden zu wenige Topics bestimmt, kann es sein, dass wichtige Themen nicht ermittelt werden oder dass in einem Topic unterschiedliche Themen zusammengefasst werden. Wird eine zu hohe Anzahl an Topics bestimmt, geht dies ebenfalls auf Kosten der Interpretierbarkeit der Topics, da ansonst zu viele unterschiedliche Wörter zusammengefasst werden und eine hohe Ladung bekommen, sprich, hier fließt eine schwache Kookkurrenz zu stark in das Modell mit ein. In der Literatur werden unterschiedliche Evaluationsmethoden diskutiert, wobei das Kohärenzmaß von Mimno (2011) für die Ermittlung der Topicanzahl oftmals herangezogen wird (Quelle). Bei Mimnos (2011) Algorithmus wird die Anzahl und Gewichtung von Kookkurrenzen der Wörter in den Dokumenten für die Qualität der Topics betont. Aber auch hier gilt zu beachten, dass ein besonders hohes Kohärenzmaß nicht gleichbedeutend mit einem menschlichen, gut interpretierbaren Modell ist. Daher ist es unerlässlich, unterschiedliche Modelle zu berechnen und miteinander zu vergleichen, sowie stichprobenartig die Dokumente selbst qualitativ zu sichten. 
+
+Für den Corpus wurden mehrere Modelle mit einer unterschiedlichen Anzahl an Topics kalkuliert, wobei sich für 20 bzw. 30 Topics das beste Koherenzmaß ergab. Nach näherer Analyse beider Modelle zeigte sich, dass das Modell mit 20 Topics am besten zu interpretieren war. 
+```{r}
+#Evaluation 
+
+
+```
+
+
+Im Folgenden gilt es die Ergebnisse dieses Modells näher darzulegen. Für die Berechnung der Modelle wurden nicht alle Wörter des Corpus mit aufgenommen, sondern nur die 10.000 häufigsten. Aus vorherigen Analysen mit allen Wörtern ergab sich bei gleicher Topicanzahl sehr ähnliche Topics, von daher geht dieser reduzierter Corpus nicht auf Kosten des Modells. Der Vorteil liegt darin, dass das Modell um eine vielfaches schneller berechnet wurde. 
+
+```{r  warning=FALSE, paged.print=FALSE, results='hide'}
+topic.count <- 20
+dfm2stm <- convert(dfm_sp, to = "stm")
+
+model.stm <- stm(dfm2stm$documents, 
+                 dfm2stm$vocab, 
+                 K = topic.count, 
+                 data = dfm2stm$meta, 
+                 init.type = "Spectral") # this is the actual stm call
+
+
+save.image('output/data/stm_model.RData')
+
+```
+
+
+
+```{r}
+
+load('output/data/stm_model.RData') # loads  stm model
+
+#df.topics <- data.frame(t(labelTopics(model.stm, n = 20)$prob))
+#df.topics %>% 
+#    head(100) %>% DT::datatable(options = list(lengthMenu = c(5, 10, 20)))
+library(markdown)
+df.topics <- data.frame(t(labelTopics(model.stm, n = 20)$score))
+p <- df.topics %>% 
+    head(100) %>% DT::datatable(options = list(lengthMenu = c(5, 10, 20)))
+
+df.topics %>% head()
+```
+
+## Topics Analyse 
+
+Nachdem das Modell berechnet wurde können nun die Topics gesichtet und analysiert werden. Dabei werden die Wörter für jedes Topic, wobei vier unterschiedliche Gewichtungen der Wortlisten dargestellt werden. Die jeweiligen Gewichtungen betonen jeweils unterschiedliche Parameter und der vergleich der unterschiedlichen Wortlisten für ein und dasselbe Topic ermöglicht eine bessere Interpretation. 
+
+ighest Prob: are the words within each topic with the highest probability (inferred directly from topic-word distribution parameter β).
+
+FREX: are the words that are both frequent and exclusive, identifying words that distinguish topics. This is calculated by taking the harmonic mean of rank by probability within the topic (frequency) and rank by distribution of topic given word p(z|w=v) (exclusivity). In estimating exclusivity we use a James-Stein type shrinkage estimator of the distribution p(z|w=v). More information can be found in the documentation for the internal function calcfrex and js.estimate.
+
+Score and Lift are measures provided in two other popular text mining packages. For more information on type Score, see the R package lda or the internal function calcscore. For more information on type Lift, see the R package maptpx or or the internal function calclift.
+
+
+
+```{r fig.height=15, fig.width=40}
+library(markdown)
+labelTopics(model.stm, n=10)
+
+#print(model.stm.labels(model.stm, n = 10))
+
+#Fehler in match.arg(type) : 'arg' should be one of “summary”, “labels”, “perspectives”, “hist”
+```
+
+
+
+## Top Topics  
+Vergleicht man die Häufigkeit der gefundenen Topics im Corpus dann zeigt sich, dass Topic 19 am häufigsten Auftrat. Mit nur geringem Abstand folgen danach Topic 10, 7, 16, 14 und 12. 
+```{r fig.height=10, fig.width=15}
+#help(stm)
+#plot(model.stm, type = "summary", xlim=(c(0,0.15)), ylim = (c(0,20)), n = 8)
+
+par(bty="n",col="grey40",lwd=3)       
+plot.STM(model.stm,type="summary",xlim=(c(0,0.15)), ylim = (c(0,20)), n = 8)
+
+```
+
+
+## Wordcloud 
+Als nächstes wurden Wordclouds für die jeweiligen Topics erstellt. Daber wurden die 20 Wörter eines Topics herangezogen, welche die höchste Wahrscheinlichkeit haben, das Topic zu repräsentieren. 
+```{r fig.height=12, fig.width=15}
+library(RColorBrewer)
+library(wordcloud)
+
+topic.count <- 20
+par(mfrow=c(3,3))
+for (i in seq_along(sample(1:topic.count, size = 20)))
+{
+  cloud(model.stm, topic = i, scale = c(4,.40), 
+        max.words = 20, main = paste0("Topic ", model.stm.labels$topicnums[i],  collapse = ", "))
+}
+```
+
+```{r fig.height=12, fig.width=15}
+library(RColorBrewer)
+library(wordcloud)
+
+topic.count <- c(2,4,7,15,11,10)
+par(mfrow=c(3,3))
+for (i in topic.count)
+{
+  cloud(model.stm, topic = i, scale = c(5,.9), 
+        max.words = 15, main = paste0("Topic ", model.stm.labels$topicnums[i],  collapse = ", "))
+}
+```
+
+## Topic Diffusion 
+Als nächstes ist von Interesse, wie sich die einzelnen Topics im Laufe der Zeit entwickelt haben, sprich, wie ihre Diffusion in der Zeitschrift verlief.
+The model for topical prevalence includes covariates which the analyst believes may influence the frequency with which a topic is discussed. This is specified as a formula which can contain smooth terms using splines or by using the function s. The response portion of the formula should be left blank. See the examples. These variables can include numeric and factor variables. While including variables of class Dates or other non-numeric, non-factor types will work in stm it may not always work for downstream functions such as estimateEffect.
+Estimates a regression where documents are the units, the outcome is the proportion of each document about a topic in an STM model and the covariates are document-meta data. This procedure incorporates measurement uncertainty from the STM model using the method of composition.
+
+This function performs a regression where topic-proportions are the outcome variable. This allows us to conditional expectation of topic prevalence given document characteristics. Use of the method of composition allows us to incorporate our estimation uncertainty in the dependent variable. Mechanically this means we draw a set of topic proportions from the variational posterior, compute our coefficients, then repeat. To compute quantities of interest we simulate within each batch of coefficients and then average over all our results.
+
+The formula specifies the nature of the linear model. On the left hand-side we use a vector of integers to indicate the topics to be included as outcome variables. If left blank then the default of all topics is used. On the right hand-side we can specify a linear model of covariates including standard transformations. Thus the model 2:4 ~ var1 + s(var2) would indicate that we want to run three regressions on Topics 2, 3 and 4 with predictor variables var1 and a b-spline transformed var2. We encourage the use of spline functions for non-linear transformations of variables.
+
+The function allows the user to specify any variables in the model. However, we caution that for the assumptions of the method of composition to be the most plausible the topic model should contain at least all the covariates contained in the estimateEffect regression. However the inverse need not be true. The function will automatically check whether the covariate matrix is singular which generally results from linearly dependent columns. Some common causes include a factor variable with an unobserved level, a spline with degrees of freedom that are too high, or a spline with a continuous variable where a gap in the support of the variable results in several empty basis functions. In these cases the function will still estimate by adding a small ridge penalty to the likelihood. However, we emphasize that while this will produce an estimate it is only identified by the penalty. In many cases this will be an indication that the user should specify a different model.
+
+Effects are plotted based on the results of estimateEffect which contains information on how the estimates are constructed. Note that in some circumstances the expected value of a topic proportion given a covariate level can be above 1 or below 0. This is because we use a Normal distribution rather than something constrained to the range between 0 and 1. If a continuous variable goes above 0 or 1 within the range of the data it may indicate that a more flexible non-linear specification is needed (such as using a spline or a spline with greater degrees of freedom).
+
+```{r fig.height=9, fig.width=12, message=FALSE, warning=FALSE}
+topic.count = 20
+
+
+model.stm.labels <- labelTopics(model.stm, 1:topic.count)
+dfm2stm$meta$datum <- as.numeric(dfm2stm$meta$Jahr)
+model.stm.ee <- estimateEffect(1:topic.count ~  s(Jahr), model.stm, meta = dfm2stm$meta)
+
+
+model.stm.labels$labname <- c("Umgang mit Medien", "Kindeswohl & Kinderschutz", "Familienhilfe", "Jugendhilfe & Inklusion", 
+                              "Wissenschaft & Disziplin", "Internationale Bildungssysteme", "Empirische Forschung", 
+                              "Care & Organisationen", "Soziale Arbeit & Kritik", "Profession & Feldtheorie",
+                              "Soziale Arbeit & Systemtheorie", "Sozialpolitik & Gesellschaft", "Anerkennung & Paternalismus",
+                              "Diskurs & Körper", "Evaluationsstudien", "Entfremdung & Gruppen", "Elternschaft", 
+                              "Themen in englischer Sprache", "Bestrafen & Beschützen", "Religion") 
+
+par(mfrow=c(3,3))
+for (i in seq_along(sample(1:topic.count, size = 20)))
+{
+  plot(model.stm.ee, "Jahr", method = "continuous", topics = i, main = paste0("Topic ",                              model.stm.labels$topicnums[i], ": ", model.stm.labels$labname[i]), printlegend = F, xlim = c(2008, 2019))
+}
+
+
+```
+
+
+
+```{r fig.height=9, fig.width=12, message=FALSE, warning=FALSE}
+
+
+topic.count <- c(2,4,7,15,11,10)
+par(mfrow=c(3,3))
+for (i in topic.count)
+{
+  plot(model.stm.ee, "Jahr", method = "continuous", topics = i, main = paste0("Topic ",                              model.stm.labels$topicnums[i], ": ",model.stm.labels$labname[i]), printlegend = F, xlim = c(2008, 2019))
+}
+
+
+```
+## Korrelations-Netzwerk 
+The first method is conceptually simpler and involves a simple thresholding procedure on the estimated marginal topic proportion correlation matrix and requires a human specified threshold.
+The "simple" method calculates the correlation of the MAP estimates for the topic proportions θ which yields the marginal correlation of the mode of the variational distribution. Then we simply set to 0 those edges where the correlation falls below the threshold.
+
+```{r fig.height=20, fig.width=20}
+library(stminsights)
+library(shiny)
+library(shinydashboard)
+library(ggraph)
+stm_corrs <- get_network(model = model.stm,
+                         method = 'simple',
+                         labels = paste('Topic', 1:20),
+                         cutoff = 0.02,
+                         cutiso = TRUE)
+
+graph <-ggraph(stm_corrs, layout = 'fr') +
+  geom_edge_link(
+    aes(edge_width = weight),
+    label_colour = '#fc8d62',
+    edge_colour = '#377eb8') +
+  geom_node_point(size = 6, colour = 'black')  +
+  geom_node_label(
+    aes(label = name, size = props),
+    colour = 'black',  repel = TRUE, alpha = 0.85) +
+  scale_size(range = c(5, 13), labels = scales::percent) +
+  labs(size = 'Topic Proportion',  edge_width = 'Topic Correlation') +
+  scale_edge_width(range = c(2, 9)) +
+  theme_graph()
+
+graph
+
+```
+
+
+```{r fig.height=20, fig.width=20}
+library(stminsights)
+library(shiny)
+library(shinydashboard)
+library(ggraph)
+stm_corrs <- get_network(model = model.stm,
+                         method = 'simple',
+                         labels = paste(model.stm.labels$labname),
+                         cutoff = 0.02,
+                         cutiso = TRUE)
+
+graph <-ggraph(stm_corrs, layout = 'fr') +
+  geom_edge_link(
+    aes(edge_width = weight),
+    label_colour = '#fc8d62',
+    edge_colour = '#377eb8') +
+  geom_node_point(size = 6, colour = 'black')  +
+  geom_node_label(
+    aes(label = name, size = props),
+    colour = 'black',  repel = TRUE, alpha = 0.85) +
+  scale_size(range = c(5, 13), labels = scales::percent) +
+  labs(size = 'Topic Proportion',  edge_width = 'Topic Correlation') +
+  scale_edge_width(range = c(2, 9)) +
+  theme_graph()
+
+graph
+
+```
+
+
+## Topic Vergleich
+```{r fig.height=8, fig.width=10}
+
+ c(2,4,7,15,11,10)
+plot(model.stm, type = "perspectives", topics = c(2,4), n = 30)
+plot(model.stm, type = "perspectives", topics = c(7,15), n = 30)
+plot(model.stm, type = "perspectives", topics = c(11,10), n = 30)
+
+```
+
+
+
+
+
+
+
+
+
+
