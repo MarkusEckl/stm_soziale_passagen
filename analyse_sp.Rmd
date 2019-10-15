@@ -321,8 +321,9 @@ library(ggraph)
 stm_corrs <- get_network(model = model.stm,
                          method = 'simple',
                          labels = paste(model.stm.labels$labname),
-                         cutoff = 0.02,
+                         cutoff = 0.01,
                          cutiso = TRUE)
+
 
 graph <-ggraph(stm_corrs, layout = 'fr') +
   geom_edge_link(
@@ -339,6 +340,34 @@ graph <-ggraph(stm_corrs, layout = 'fr') +
   theme_graph()
 
 graph
+
+```
+
+
+```{r fig.height=20, fig.width=20}
+
+library(igraph)
+
+stm_corrs <- get_network(model = model.stm,
+                         method = 'simple',
+                         labels = paste(model.stm.labels$labname),
+                         cutoff = 0.1,
+                         cutiso = TRUE)
+
+png("Korrelationsnetzwerk_Topic_Modularity.png", width=900, height=900, res=200)
+clp <- cluster_label_prop(stm_corrs)
+plot_clp <- plot(clp, stm_corrs, 
+                 vertex.label.cex = 0.5, 
+                 vertex.label.color = c("black"),
+                 edge.color = rep(c("black")))
+plot_clp
+dev.off()
+
+clp <- cluster_label_prop(stm_corrs)
+plot_clp <- plot(clp, stm_corrs, 
+                 vertex.label.cex = 2)
+
+
 
 ```
 
