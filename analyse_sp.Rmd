@@ -33,6 +33,7 @@ library(spacyr)
 library(stm)
 library(DT)
 library(sna)
+library(ggplot2)
 ```
 
 
@@ -148,20 +149,46 @@ save.image('output/data/stm_model.RData')
 ```
 
 
+##Score 
+```{r, echo=FALSE, results= "asis"}
 
-```{r}
-
-load('output/data/stm_model.RData') # loads  stm model
+load('/home/eckl/analyse_sp/code/output/data/stm_model.RData') # loads  stm model
 
 #df.topics <- data.frame(t(labelTopics(model.stm, n = 20)$prob))
 #df.topics %>% 
 #    head(100) %>% DT::datatable(options = list(lengthMenu = c(5, 10, 20)))
-library(markdown)
-df.topics <- data.frame(t(labelTopics(model.stm, n = 20)$score))
-p <- df.topics %>% 
-    head(100) %>% DT::datatable(options = list(lengthMenu = c(5, 10, 20)))
 
-df.topics %>% head()
+library(markdown)
+library(knitr)
+library(kableExtra)
+
+df.topics <- data.frame(t(labelTopics(model.stm, n = 20)$score))
+
+kable(df.topics %>% head(10)) %>%
+  kable_styling() %>%
+  scroll_box(width = "800px", height = "300px")
+```
+
+
+
+##FREX 
+```{r, echo=FALSE, results= "asis"}
+
+load('/home/eckl/analyse_sp/code/output/data/stm_model.RData') # loads  stm model
+
+#df.topics <- data.frame(t(labelTopics(model.stm, n = 20)$prob))
+#df.topics %>% 
+#    head(100) %>% DT::datatable(options = list(lengthMenu = c(5, 10, 20)))
+
+library(markdown)
+library(knitr)
+library(kableExtra)
+
+df.topics <- data.frame(t(labelTopics(model.stm, n = 20)$frex))
+
+kable(df.topics %>% head(10)) %>%
+  kable_styling() %>%
+  scroll_box(width = "800px", height = "300px")
 ```
 
 ## Topics Analyse 
@@ -175,30 +202,57 @@ FREX: are the words that are both frequent and exclusive, identifying words that
 Score and Lift are measures provided in two other popular text mining packages. For more information on type Score, see the R package lda or the internal function calcscore. For more information on type Lift, see the R package maptpx or or the internal function calclift.
 
 
-
-```{r fig.height=15, fig.width=40}
-library(markdown)
-labelTopics(model.stm, n=10)
-
-#print(model.stm.labels(model.stm, n = 10))
-
-#Fehler in match.arg(type) : 'arg' should be one of “summary”, “labels”, “perspectives”, “hist”
-```
-
-
-
 ## Top Topics  
-Vergleicht man die Häufigkeit der gefundenen Topics im Corpus dann zeigt sich, dass Topic 19 am häufigsten Auftrat. Mit nur geringem Abstand folgen danach Topic 10, 7, 16, 14 und 12. 
+
 ```{r fig.height=10, fig.width=15}
-#help(stm)
-#plot(model.stm, type = "summary", xlim=(c(0,0.15)), ylim = (c(0,20)), n = 8)
 
-par(bty="n",col="grey40",lwd=3)       
-plot.STM(model.stm,type="summary",xlim=(c(0,0.15)), ylim = (c(0,20)), n = 8)
 
+labname <- c("Umgang mit Medien", "Kindeswohl & Kindheit", "Familienhilfe", "Jugendhilfe & Inklusion", 
+                              "Wissenschaft & Disziplin", "Internationale Bildungssysteme", "Empirische Forschung", 
+                              "Care & Organisationen", "Soziale Arbeit & Kritik", "Profession & Feldtheorie",
+                              "Soziale Arbeit & Systemtheorie", "Sozialpolitik & Gesellschaft", "Anerkennung & Paternalismus",
+                              "Diskurs & Körper", "Evaluationsstudien", "Entfremdung & Gruppen", "Elternschaft", 
+                              "Themen in englischer Sprache", "Bestrafen & Beschützen", "Religion") 
 ```
 
 
+
+```{r fig.height=10, fig.width=15}
+library(dplyr)
+df.s <- data.frame(labname)
+proportion <- as.data.frame(colSums(model.stm$theta/nrow(model.stm$theta)))
+df.s <- cbind(df.s, proportion)
+colnames(df.s) <- c("Labels", "Probability")
+
+
+
+df.s2 <- df.s[order(-df.s$Probability), ] 
+df.s2$Labels <- factor(df.s2$Labels, levels = rev(df.s2$Labels))
+df.s2$Probability <- as.numeric(df.s2$Probability)
+df.s2$Probability <- round(df.s2$Probability, 4)
+df.s2 %>% head()
+
+png("Verteilung_der_häufigsten_Topics.png",  width=1000, height=600, res=150)
+ht <- ggplot(df.s2 %>% head(15), aes(x = Labels, y = Probability)) + 
+   geom_bar(stat = "identity", width = 0.2) +
+   #coord_cartesian(ylim = c(0,0.05)) +
+   coord_flip() + 
+  ggtitle(label = paste0("Die 15 häufigsten Topics im Corpus")) +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+  #theme(panel.border = element_blank())
+
+dev.off()
+ht
+```
+
+```{r fig.height=10, fig.width=15}
+
+
+#par(bty="n",col="grey40",lwd=3)       
+#plot.STM(model.stm,type="summary",xlim=(c(0,0.15)), ylim = (c(0,20)), n = 8)
+
+```
 ## Wordcloud 
 Als nächstes wurden Wordclouds für die jeweiligen Topics erstellt. Daber wurden die 20 Wörter eines Topics herangezogen, welche die höchste Wahrscheinlichkeit haben, das Topic zu repräsentieren. 
 ```{r fig.height=12, fig.width=15}
@@ -232,13 +286,7 @@ Als nächstes ist von Interesse, wie sich die einzelnen Topics im Laufe der Zeit
 The model for topical prevalence includes covariates which the analyst believes may influence the frequency with which a topic is discussed. This is specified as a formula which can contain smooth terms using splines or by using the function s. The response portion of the formula should be left blank. See the examples. These variables can include numeric and factor variables. While including variables of class Dates or other non-numeric, non-factor types will work in stm it may not always work for downstream functions such as estimateEffect.
 Estimates a regression where documents are the units, the outcome is the proportion of each document about a topic in an STM model and the covariates are document-meta data. This procedure incorporates measurement uncertainty from the STM model using the method of composition.
 
-This function performs a regression where topic-proportions are the outcome variable. This allows us to conditional expectation of topic prevalence given document characteristics. Use of the method of composition allows us to incorporate our estimation uncertainty in the dependent variable. Mechanically this means we draw a set of topic proportions from the variational posterior, compute our coefficients, then repeat. To compute quantities of interest we simulate within each batch of coefficients and then average over all our results.
 
-The formula specifies the nature of the linear model. On the left hand-side we use a vector of integers to indicate the topics to be included as outcome variables. If left blank then the default of all topics is used. On the right hand-side we can specify a linear model of covariates including standard transformations. Thus the model 2:4 ~ var1 + s(var2) would indicate that we want to run three regressions on Topics 2, 3 and 4 with predictor variables var1 and a b-spline transformed var2. We encourage the use of spline functions for non-linear transformations of variables.
-
-The function allows the user to specify any variables in the model. However, we caution that for the assumptions of the method of composition to be the most plausible the topic model should contain at least all the covariates contained in the estimateEffect regression. However the inverse need not be true. The function will automatically check whether the covariate matrix is singular which generally results from linearly dependent columns. Some common causes include a factor variable with an unobserved level, a spline with degrees of freedom that are too high, or a spline with a continuous variable where a gap in the support of the variable results in several empty basis functions. In these cases the function will still estimate by adding a small ridge penalty to the likelihood. However, we emphasize that while this will produce an estimate it is only identified by the penalty. In many cases this will be an indication that the user should specify a different model.
-
-Effects are plotted based on the results of estimateEffect which contains information on how the estimates are constructed. Note that in some circumstances the expected value of a topic proportion given a covariate level can be above 1 or below 0. This is because we use a Normal distribution rather than something constrained to the range between 0 and 1. If a continuous variable goes above 0 or 1 within the range of the data it may indicate that a more flexible non-linear specification is needed (such as using a spline or a spline with greater degrees of freedom).
 
 ```{r fig.height=9, fig.width=12, message=FALSE, warning=FALSE}
 topic.count = 20
@@ -249,7 +297,7 @@ dfm2stm$meta$datum <- as.numeric(dfm2stm$meta$Jahr)
 model.stm.ee <- estimateEffect(1:topic.count ~  s(Jahr), model.stm, meta = dfm2stm$meta)
 
 
-model.stm.labels$labname <- c("Umgang mit Medien", "Kindeswohl & Kinderschutz", "Familienhilfe", "Jugendhilfe & Inklusion", 
+model.stm.labels$labname <- c("Umgang mit Medien", "Kindeswohl & Kindheit", "Familienhilfe", "Jugendhilfe & Inklusion", 
                               "Wissenschaft & Disziplin", "Internationale Bildungssysteme", "Empirische Forschung", 
                               "Care & Organisationen", "Soziale Arbeit & Kritik", "Profession & Feldtheorie",
                               "Soziale Arbeit & Systemtheorie", "Sozialpolitik & Gesellschaft", "Anerkennung & Paternalismus",
@@ -370,24 +418,6 @@ plot_clp <- plot(clp, stm_corrs,
 
 
 ```
-
-
-## Topic Vergleich
-```{r fig.height=8, fig.width=10}
-
- c(2,4,7,15,11,10)
-plot(model.stm, type = "perspectives", topics = c(2,4), n = 30)
-plot(model.stm, type = "perspectives", topics = c(7,15), n = 30)
-plot(model.stm, type = "perspectives", topics = c(11,10), n = 30)
-
-```
-
-
-
-
-
-
-
 
 
 
